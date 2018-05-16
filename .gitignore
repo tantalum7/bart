@@ -106,3 +106,5 @@ venv_pypy/
 .mypy_cache/
 
 .idea/
+
+*.json
