@@ -24,5 +24,15 @@ if __name__ == "__main__":
     """
 
     while True:
-        pass
+
+        #print(lpc["XAU_CAD"]["closeoutBid"].data_array())
+        if lpc["XAU_CAD"]["closeoutBid"].num_pushes > 5:
+            now = lpc["XAU_CAD"]["closeoutBid"].data_array()[0]
+            prev = lpc["XAU_CAD"]["closeoutBid"].data_array()[1]
+            delta = ((now/prev) - 1) * 100
+
+            print("Delta: {:+0.6f}%".format(delta))
+
+        time.sleep(0.25)
+
     print("done")

@@ -6,32 +6,97 @@ import ctypes
 import time
 import v20
 from v20.pricing import Price
+from decimal import Decimal
+
+
+class NumpySynchronisedArray(object):
+
+    def __init__(self, c_type, size):
+        # If size is a tuple/list (nD array) multiply all the numbers to get the flat size
+        # If size is a number (1D array), flat_size is just the size
+        self._flat_size = np.prod(np.array(size)) if type(size) in [list, tuple] else size
+        self._raw_array = mp.RawArray(c_type, self._flat_size)
+        self._size = size
+        self._c_type = c_type
+        self._lock = mp.RLock()
+
+    def __enter__(self):
+        self._lock.acquire()
+        return np.frombuffer(self._raw_array, self._c_type, self._flat_size).reshape(self._size)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._lock.release()
+
+    def __getitem__(self, key):
+        with self as data:
+            return np.array(data[key])
+
+    def __setitem__(self, key, value):
+        with self as data:
+            data[key] = value
+
+    def copy(self):
+        with self as data:
+            return np.array(data)
 
 
 class NumpyFixedFifo(object):
 
+    DATA_KEY = 0
+    TIME_KEY = 1
+
     def __init__(self, fixed_size):
-        self._array = mp.Array(ctypes.c_float, fixed_size)
-        self._num_pushes = 0
+        self._data_array = NumpySynchronisedArray(ctypes.c_float, fixed_size)
+        self._time_array = NumpySynchronisedArray(ctypes.c_float, fixed_size)
+        self._num_pushes = mp.Value(ctypes.c_long)
         self._size = fixed_size
 
     @property
     def num_pushes(self):
-        return self._num_pushes
+        return self._num_pushes.value
 
     @property
     def size(self):
         return self._size
 
-    def push(self, value):
-        self._array = np.roll(self._array, 1)
-        self._array[0] = value
-        self._num_pushes += 1
+    def __getitem__(self, key):
+        if key is self.DATA_KEY:
+            return self.array()[self.DATA_KEY]
+        return self.array()[:key]
+
+    def push(self, data, timestamp):
+        with self._data_array as data_array:
+            np.copyto(data_array, np.roll(data_array, 1))
+        with self._time_array as time_array:
+            np.copyto(time_array, np.roll(time_array, 1))
+        self._data_array[self.DATA_KEY] = data
+        self._time_array[self.TIME_KEY] = timestamp
+        self._incr_pushes()
 
     def array(self):
-        return self._array[0:self.num_pushes if self.num_pushes < self.size else self.size]
+        stop = self.num_pushes if self.num_pushes < self.size else self.size
+        d = np.array(self._data_array[:stop])
+        dd = self._data_array.copy()
+        return np.array([self._data_array[:stop], self._time_array[:stop]])
 
+    def latest(self):
+        return np.array([self._data_array[0], self._time_array[0]])
 
+    def latest_data(self):
+        return self.latest()[self.DATA_KEY]
+
+    def latest_time(self):
+        return self.latest()[self.TIME_KEY]
+
+    def data_array(self):
+        return self.array()[self.DATA_KEY]
+
+    def time_array(self):
+        return self.array()[self.TIME_KEY]
+
+    def _incr_pushes(self):
+        with self._num_pushes.get_lock():
+            self._num_pushes.value += 1
 
 class LivePriceCache(object):
 
@@ -49,6 +114,9 @@ class LivePriceCache(object):
 
         self._process.start()
 
+    def __getitem__(self, key):
+        return self._instrument_arrays[key]
+
     @property
     def dataset_memory(self):
         return self._dpoint_count * 32 * 4
@@ -58,7 +126,7 @@ class LivePriceCache(object):
         for instrument, fields in instrument_dict.items():
             field_arrays = {}
             for field in fields:
-                field_arrays[field] = (NumpyFixedFifo(cache_size), NumpyFixedFifo(cache_size))
+                field_arrays[field] = NumpyFixedFifo(cache_size)
                 self._dpoint_count += 2 * cache_size
             self._instrument_arrays[instrument] = field_arrays
 
@@ -79,7 +147,8 @@ class _LivePriceCacheProcess(mp.Process):
         # Create streaming api context
         api = v20.Context(hostname=self.cfg["streaming_hostname"],
                           port=self.cfg["port"],
-                          token=self.cfg["token"])
+                          token=self.cfg["token"],
+                          datetime_format=self.cfg["datetime_format"])
 
         # Squash instrument list into a csv string
         instrument_str_list = ",".join(self.instrument_arrays.keys())
@@ -97,7 +166,7 @@ class _LivePriceCacheProcess(mp.Process):
             if isinstance(data, Price):
 
                 for field in self.instrument_arrays[data.instrument].keys():
-                    self.instrument_arrays[data.instrument][field].push(getattr(data, field))
+                    self.instrument_arrays[data.instrument][field].push(getattr(data, field), float(data.time))
 
             # Sleep so we don't overload the api (broker api has rate limiting)
             time.sleep(0.25)
