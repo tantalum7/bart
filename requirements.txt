@@ -1,0 +1,15 @@
+certifi==2018.4.16
+chardet==3.0.4
+idna==2.6
+jsonschema==2.6.0
+numpy==1.14.3
+pandas==0.23.0
+python-dateutil==2.7.3
+pytz==2018.4
+PyYAML==3.12
+requests==2.18.4
+scipy==1.1.0
+six==1.11.0
+ujson==1.35
+urllib3==1.22
+v20==3.0.22.0
