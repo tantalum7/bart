@@ -1,5 +1,5 @@
-from trader.trader import Trader
-from trader.price_cache import LivePriceCache
+from bart.trader import Trader
+from bart.price_cache import LivePriceCache
 
 if __name__ == "__main__":
 
@@ -7,7 +7,7 @@ if __name__ == "__main__":
 
     trader = Trader()
 
-    lpc = LivePriceCache(trader._cfg, {"XAU_CAD": ["closeoutBid"], "NZD_SGD": ["closeoutBid"]})
+    lpc = LivePriceCache(trader.v20config, {"XAU_CAD": ["closeoutBid"], "NZD_SGD": ["closeoutBid"]})
 
     """
     stream = trader.test_stream("XAU_CAD,NZD_SGD,CAD_SGD,USD_NOK")
