@@ -1,11 +1,13 @@
-from bart.trader import Trader
+
+
+from bart import Bart
 from bart.price_cache import LivePriceCache
 
 if __name__ == "__main__":
 
     import time
 
-    trader = Trader()
+    trader = Bart()
 
     lpc = LivePriceCache(trader.v20config, {"XAU_CAD": ["closeoutBid"], "NZD_SGD": ["closeoutBid"]})
 
@@ -20,7 +22,6 @@ if __name__ == "__main__":
 
     for x in range(100):
         print("{}: {}".format(g[1].instrument, g[1].closeoutBid))
-
     """
 
     while True:

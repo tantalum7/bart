@@ -2,7 +2,7 @@
 # Library imports
 import numpy as np
 import multiprocessing as mp
-import ctypes
+import datetime
 import time
 import v20
 from v20.pricing import Price
@@ -90,3 +90,37 @@ class _LivePriceCacheProcess(mp.Process):
 
             # Sleep so we don't overload the api (broker api has rate limiting)
             time.sleep(0.25)
+
+
+class _HistoricalPriceCacheProcess(mp.Process):
+
+    def __init__(self, csv_filepath, instrument_arrays, kill_event):
+        # type: (str, dict, mp.Event) -> None
+        super(_HistoricalPriceCacheProcess, self).__init__()
+
+        self.instrument_arrays = instrument_arrays
+        self.kill_event = kill_event
+        self.csv_filepath = csv_filepath
+
+    def run(self):
+
+        with open(self.csv_filepath, "r") as csv_data:
+
+            # Keep looping until the kill event is set
+            while not self.kill_event.is_set():
+
+                # Grab the next line of the file, and split by semicolon
+                date_seconds, price, null = csv_data.readline().split(";")
+
+                # Date format is weird (YYYYMMDD DAY_SECONDS)
+                # Lets separate the date and the seconds
+                date, seconds = date_seconds.split(" ")
+
+                # Convert date into seconds timestamp, and add to day seconds
+                seconds += datetime.datetime(int(date[0:4]), int(date[4:6]), int(date[6:8])).timestamp()
+
+                # Push next data item into fifos
+                self.instrument_arrays["EUR_USD"]["closeoutBid"].push(float(price), seconds)
+
+                # Sleep so we spit out new values every second
+                time.sleep(1)
